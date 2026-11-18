@@ -1,0 +1,404 @@
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: #0a0a0f;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font-family: 'Press Start 2P', monospace;
+}
+
+#game-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: #000;
+  border: 4px solid #2a2a35;
+  border-radius: 8px;
+  box-shadow:
+    0 0 0 2px #000,
+    0 0 40px rgba(80, 220, 120, 0.15),
+    0 20px 60px rgba(0, 0, 0, 0.6);
+}
+
+/* Keyboard-focusable (tabindex="0" in index.html), mainly for accessibility/
+   tab order -- actual keyboard capture during gameplay lives on #vim-trap
+   below instead (see js/input.js), so this ring would otherwise draw on a
+   canvas with no visible text cursor; suppressed here either way. */
+canvas:focus {
+  outline: none;
+}
+
+/* Off-screen focus-trap input -- see js/input.js and the comment on it in
+   index.html. opacity: 0 (not display: none / visibility: hidden) is
+   required: either of those would make the element unfocusable, defeating
+   the whole point. pointer-events: none keeps it from ever intercepting a
+   real click/tap meant for the canvas or UI underneath it. */
+.vim-trap {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  outline: none;
+  opacity: 0;
+  background: transparent;
+  pointer-events: none;
+}
+
+#game-canvas {
+  display: block;
+  /* Scale fluidly to fill ~90-95% of the viewport on larger displays instead of
+     capping out at the native 800x450 buffer -- min() picks whichever of the
+     two 16:9-derived candidates fits the bounding box, so the canvas grows as
+     large as it can while never busting either the 92vw or 88vh ceiling. The
+     actual drawing-buffer resolution (canvas.width/height, set in game.js)
+     never changes -- this is a pure CSS upscale, kept crisp by image-rendering
+     below rather than the browser's default smoothing/blur. */
+  width: min(92vw, 88vh * 16 / 9);
+  height: min(88vh, 92vw * 9 / 16);
+  max-width: 100vw;
+  max-height: 100vh;
+  object-fit: contain;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+}
+
+/* ---------------------------------------------------------------------
+   Top-right UI overlay (mute + fullscreen) -- a direct child of <body>
+   (not #game-stage), fixed to the viewport so it stays on top and
+   reachable regardless of breakpoint, #game-stage's own sizing, or
+   fullscreen state.
+
+   z-index is one order of magnitude above the 999999 that
+   body.fullscreen-mode / #game-stage take on below -- #game-stage is a
+   SIBLING of this overlay (both direct children of <body>), so without a
+   strictly higher value here, entering fullscreen-mode would stack the
+   (also now position:fixed) game stage on top of this overlay and hide the
+   only way to exit pseudo-fullscreen on a device with no real Fullscreen
+   API (iOS) to fall back on.
+   --------------------------------------------------------------------- */
+
+.top-controls-overlay {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 1000000;
+  display: flex;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.ui-btn {
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid #00ff66;
+  color: #00ff66;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 16px;
+  font-family: 'Press Start 2P', monospace;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.ui-btn:hover,
+.ui-btn:focus-visible,
+.ui-btn:active {
+  background: rgba(0, 255, 102, 0.25);
+}
+
+/* Reflects actual JS-tracked state (muted / fullscreen-on) rather than the
+   fleeting CSS :active press -- on iOS Safari, :active can stay stuck or
+   never visibly trigger for a tap, so the button needs a state-driven look
+   that persists for as long as the toggle is actually on. */
+.ui-btn.is-active {
+  background: rgba(0, 255, 102, 0.35);
+  border-color: #aaffcc;
+}
+
+/* On small / touch screens the decorative frame just eats into space the
+   canvas and virtual controls need, so drop it and go edge-to-edge -- and let
+   the canvas itself fill the full viewport (object-fit: contain above still
+   keeps its drawn content letterboxed/unstretched either way).
+
+   The extra (max-height: 500px) and (orientation: landscape) clause catches
+   phones held sideways that don't match the other two conditions -- e.g. a
+   wide landscape phone whose viewport width can exceed 900px, in a context
+   where pointer: coarse isn't reported reliably. Without it, such a device
+   fell through to the desktop styling: the decorative border/padding on top
+   of the already-unavoidable 16:9 letterboxing on an ultra-wide phone screen
+   compounded into much bigger black bars than necessary. */
+@media (max-width: 900px), (pointer: coarse), ((max-height: 500px) and (orientation: landscape)) {
+  #game-stage {
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    width: 100vw;
+    height: 100dvh;
+  }
+
+  /* height:100dvh + width:auto (clamped by max-width) lets the browser derive
+     the box from the 16:9 aspect-ratio set above, so the canvas always fills
+     the full viewport HEIGHT with no internal letterboxing -- any leftover
+     gap is a symmetric, minimal margin on the sides only (unavoidable unless
+     the device itself happens to be exactly 16:9), not the previous
+     width:100vw + height:100vh pairing, which forced a box that didn't match
+     the drawing buffer's aspect ratio and (on top of the usual 100vh-vs-
+     dynamic-toolbar mismatch on mobile Safari) produced much bigger blank
+     margins than the content's actual aspect ratio requires. */
+  #game-canvas {
+    width: auto;
+    height: 100dvh;
+    max-width: 100vw;
+    max-height: 100dvh;
+  }
+}
+
+/* ---------------------------------------------------------------------
+   Fullscreen-mode presentation layer -- toggled unconditionally by
+   game.js's toggleFullscreen() on every click (see game.js), alongside
+   (not only as a fallback for) the real Fullscreen API. This is what
+   actually makes the game go edge-to-edge on iOS Safari/Chrome, which has
+   no working Fullscreen API: requestFullscreen() there either doesn't
+   exist or exists but silently rejects when called on a non-video element.
+   On platforms that DO support the real API, both apply together -- the
+   CSS below takes effect immediately and synchronously, while the native
+   request additionally sheds browser chrome once/if its promise resolves.
+   100dvh (rather than 100vh) tracks the *current* visible viewport as
+   Safari's address bar collapses. The !important rules pin the page itself
+   in place (so the layout underneath can't be scrolled/resized out from
+   under it); the #game-stage/#game-canvas rules then re-fit the actual
+   game content to that pinned viewport.
+   --------------------------------------------------------------------- */
+body.fullscreen-mode,
+body.fullscreen-mode #game-stage {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  z-index: 999999 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: #000 !important;
+  overflow: hidden !important;
+}
+
+body.fullscreen-mode #game-canvas {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+}
+
+/* ---------------------------------------------------------------------
+   Portrait lock overlay
+   --------------------------------------------------------------------- */
+
+#orientation-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background-color: #0a0a0f;
+  background-image:
+    linear-gradient(rgba(80, 220, 120, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(80, 220, 120, 0.06) 1px, transparent 1px);
+  background-size: 24px 24px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+}
+
+#orientation-overlay p {
+  font-family: 'Press Start 2P', monospace;
+  color: #50dc78;
+  font-size: 14px;
+  line-height: 1.9;
+  text-shadow: 0 0 12px rgba(80, 220, 120, 0.5);
+  margin: 0;
+}
+
+.orientation-icon {
+  display: inline-block;
+  font-size: 1.3em;
+  animation: orientation-rotate-hint 1.6s ease-in-out infinite;
+}
+
+@keyframes orientation-rotate-hint {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(90deg); }
+}
+
+@media (orientation: portrait) {
+  #orientation-overlay {
+    display: flex;
+  }
+
+  #game-stage {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------------
+   Virtual touch controls (Vim keycap buttons)
+   --------------------------------------------------------------------- */
+
+#touch-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none; /* only the buttons themselves opt back in */
+}
+
+.touch-pad {
+  position: absolute;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  display: flex;
+  gap: 18px;
+  pointer-events: none;
+}
+
+.touch-pad-left {
+  left: max(16px, env(safe-area-inset-left));
+  align-items: center;
+}
+
+.touch-pad-right {
+  right: max(16px, env(safe-area-inset-right));
+  align-items: flex-end;
+}
+
+.touch-key {
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  border: 3px solid #50dc78;
+  background: rgba(10, 10, 15, 0.55);
+  color: #50dc78;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.5);
+  opacity: 0.35;
+  transition: transform 0.05s, box-shadow 0.05s, background 0.05s, opacity 0.05s;
+}
+
+/* .touch-key's own `display: flex` has the same specificity as (and would
+   otherwise beat) the browser default for [hidden], so it has to be restated
+   explicitly -- without this the FIRE button stays visible before the blaster
+   is unlocked. */
+.touch-key[hidden] {
+  display: none;
+}
+
+.touch-key.is-pressed {
+  background: rgba(80, 220, 120, 0.35);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+  transform: translateY(3px);
+  opacity: 0.75;
+}
+
+.touch-key-jump {
+  width: 78px;
+  height: 78px;
+  font-size: 20px;
+}
+
+.touch-key-fire {
+  border-color: #4ad7ff;
+  color: #4ad7ff;
+  font-size: 11px;
+}
+
+.touch-key-fire.is-pressed {
+  background: rgba(74, 215, 255, 0.35);
+}
+
+/* Hide the virtual pads entirely unless JS detects touch support. */
+#touch-controls[hidden] {
+  display: none;
+}
+
+/* On short mobile-landscape screens the playable field is already cramped
+   vertically, so the full-size (64-78px) keycaps from the desktop/tablet
+   sizing above sit right on top of the character and hazards. Shrink them,
+   fade them out partway (opacity so the art underneath stays readable
+   through the button), and push each pad out into its own side margin --
+   the letterboxed black bar left/right of the 16:9 canvas on a wider-than-
+   16:9 phone -- instead of the softer safe-area-driven offset used above:
+   H/L strictly in the left margin, J/K strictly in the right margin, and
+   lifted above the iOS home-indicator gesture bar with the safe-area inset.
+   #touch-controls itself stays pointer-events:none (see above) so only the
+   buttons themselves -- still pointer-events:auto via .touch-key -- ever
+   intercept a tap; everything else keeps reaching the canvas. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .touch-pad {
+    bottom: calc(18px + env(safe-area-inset-bottom));
+    gap: 24px;
+  }
+
+  .touch-pad-left {
+    left: 12px;
+  }
+
+  .touch-pad-right {
+    right: 12px;
+  }
+
+  .touch-key {
+    width: 58px;
+    height: 58px;
+    font-size: 19px;
+    border-radius: 10px;
+    touch-action: manipulation;
+    user-select: none;
+  }
+
+  .touch-key-jump {
+    width: 64px;
+    height: 64px;
+    font-size: 20px;
+  }
+
+  /* FIRE's own label is 4 characters vs. the single-letter H/L/J/K keys, so it
+     needs a smaller font than .touch-key's 19px above (which would otherwise
+     win on source order and overflow "FIRE" past the button's rounded border)
+     to actually fit inside the shared 58px box. */
+  .touch-key-fire {
+    font-size: 14px;
+  }
+}

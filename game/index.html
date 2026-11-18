@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Trapped in Vim :: :wq!</title>
+  <link rel="icon" href="data:," />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="game-stage">
+    <canvas id="game-canvas" width="800" height="450" tabindex="0"></canvas>
+    <!-- Focus-trap for H/J/K/L/F -- see js/input.js. On desktop this stays
+         focused during gameplay instead of the canvas: it's a genuinely
+         editable element, so Vimium (and similar extensions) see an active
+         text field and drop into their own "insert mode", standing down
+         entirely instead of racing our keydown handler for link hints /
+         scrolling. Never focused on touch devices (see InputManager) so
+         iOS/Android never pop the on-screen keyboard for it. -->
+    <input
+      type="text"
+      id="vim-trap"
+      class="vim-trap"
+      tabindex="-1"
+      inputmode="none"
+      autocomplete="off"
+      autocapitalize="off"
+      autocorrect="off"
+      spellcheck="false"
+      aria-hidden="true"
+    />
+    <div id="touch-controls" hidden>
+      <div class="touch-pad touch-pad-left">
+        <button type="button" class="touch-key" data-key="KeyH" aria-label="Move left">H</button>
+        <button type="button" class="touch-key" data-key="KeyL" aria-label="Move right">L</button>
+      </div>
+      <div class="touch-pad touch-pad-right">
+        <button type="button" class="touch-key touch-key-fire" id="touch-fire" data-key="KeyF" aria-label="Fire" hidden>FIRE</button>
+        <button type="button" class="touch-key" data-key="KeyJ" aria-label="Crouch or drop">J</button>
+        <button type="button" class="touch-key touch-key-jump" data-key="KeyK" aria-label="Jump or fly">K</button>
+      </div>
+    </div>
+  </div>
+  <div class="top-controls-overlay">
+    <button type="button" id="mute-btn" class="ui-btn" aria-label="Toggle Mute">🔊</button>
+    <button type="button" id="fullscreen-btn" class="ui-btn" aria-label="Toggle Fullscreen">⛶</button>
+  </div>
+  <div id="orientation-overlay">
+    <p>PLEASE ROTATE YOUR<br />DEVICE TO LANDSCAPE <span class="orientation-icon">📱⚡</span></p>
+  </div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
